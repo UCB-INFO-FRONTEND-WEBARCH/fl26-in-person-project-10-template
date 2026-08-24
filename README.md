@@ -1,4 +1,4 @@
-# Week 11: Advanced Async Patterns - Weather Dashboard
+# Week 12: Advanced Async Patterns - Weather Dashboard
 ## Master Production-Ready Asynchronous JavaScript
 
 ### 🎯 Learning Objectives
@@ -12,9 +12,9 @@ By completing this project, you will:
 
 ### 📚 Prerequisites
 Before starting, you should have:
-- Completed Week 11 lecture on Advanced JavaScript
+- Completed Week 12 lecture on Advanced JavaScript
 - Reviewed prep work Chapter 10: Promises and Async
-- Understanding of async/await from Week 10
+- Understanding of async/await from Week 9
 - Basic knowledge of fetch API and Promise methods
 
 ### 🏗️ Project Overview
@@ -22,7 +22,7 @@ Transform a broken weather dashboard into a production-ready application that gr
 
 ### 🚀 Getting Started
 
-**First:** Accept the GitHub Classroom assignment link provided by your instructor. This will create a new repository with the Week 11 starter code.
+**First:** Accept the GitHub Classroom assignment link provided by your instructor. This will create a new repository with the Week 12 starter code.
 
 1. **Clone your new repository:**
    ```bash
