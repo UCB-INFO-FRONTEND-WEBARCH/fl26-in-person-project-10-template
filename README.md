@@ -1,177 +1,146 @@
-# Week 12: Advanced Async Patterns - Weather Dashboard
-## Master Production-Ready Asynchronous JavaScript
+# Week 12: Advanced Async Patterns, the Weather Dashboard
+## Make an Unreliable API Feel Reliable
 
 ### 🎯 Learning Objectives
 By completing this project, you will:
-- Implement retry logic with exponential backoff for resilient API calls
-- Use Promise.race, Promise.allSettled, and Promise.any for advanced coordination
-- Build request caching and deduplication to optimize performance
-- Handle race conditions with proper debouncing and cancellation
-- Create production-ready error boundaries and recovery strategies
-- Implement polling patterns for real-time updates
+- Write `fetchWithRetry`: a timeout with `AbortController`, and retries with exponential backoff
+- Write a small cache with a time-to-live, and deduplicate requests that are already in flight
+- Load four data sources in parallel with `Promise.allSettled`, so one failure does not block the rest
+- Stretch: debounce a search box and cancel the stale request (`useSearch`), and poll for fresh data (`usePolling`)
+- Stretch (Tiers): fill each card as its own request settles, pick the fastest of three sources with `Promise.any`, and stop retrying errors that will never succeed
 
 ### 📚 Prerequisites
 Before starting, you should have:
-- Completed Week 12 lecture on Advanced JavaScript
-- Reviewed prep work Chapter 10: Promises and Async
-- Understanding of async/await from Week 9
-- Basic knowledge of fetch API and Promise methods
+- Attended the Week 12 lecture (Advanced JavaScript: promises and async/await)
+- Read Modern JavaScript, chapter 10 (Promises and Async)
+- Node 18 or newer (`node -v`)
 
 ### 🏗️ Project Overview
-Transform a broken weather dashboard into a production-ready application that gracefully handles network issues, coordinates multiple APIs, and provides a smooth user experience even when things go wrong. You'll implement the same patterns used by Netflix, Spotify, and other major applications.
+The starter is a weather dashboard that talks to a deliberately bad API: about 30% of its answers are errors and about 20% take two to five seconds. Today you make the dashboard dependable without touching the API: failed requests retry, repeated requests come from a cache, and the four cards load at the same time.
+
+**What the starter gives you:** a complete Vite + React app: `src/App.jsx` (the dashboard), six components under `src/components/` (four cards, `SearchBar`, `StatusBar`), all the CSS, and a mock API server in `mock-api/server.js`. The code you write today goes into files that already exist as `TODO` stubs: `src/utils/asyncPatterns.js`, `src/services/dashboardService.js`, and (stretch) `src/hooks/useSearch.js` and `src/hooks/usePolling.js`. The app starts and runs before you change anything; it is just slow and often red.
+
+**Fill the TODO in place; never create a file that exists or paste a second copy of a line.** Every code block below replaces a stub in a file that already exists. If a block repeats a line the starter already has (an `import`, a `const`, a `class`), keep one copy. A duplicated `import`, `const` or `class` is a syntax error that blanks the whole page.
+
+**Not used today:** `src/services/weatherService.js`, `test-patterns.html`, and the stubs in `asyncPatterns.js` that no Part names (`fetchWithTimeout`, `fetchAllParallel`, `dedupedFetch`). Leave them as they are; they are extra practice for after class.
 
 ### 🚀 Getting Started
 
-**First:** Accept the GitHub Classroom assignment link provided by your instructor. This will create a new repository with the Week 12 starter code.
+**Today's core is Parts 1 to 4 (about 50 minutes after a 10-minute setup). Parts 5 and 6 are the stretch, the Tiers come after. Each Part ends with a Checkpoint that says what you should see.**
 
-1. **Clone your new repository:**
+#### First: Create your own copy of this template
+This repository is a GitHub **template** (GitHub Classroom is not used this term). Make your own copy of it, then clone that copy.
+
+1. On this repository's page, click the green **Use this template** button and choose **Create a new repository**. On the next screen: Owner = your own GitHub account, Repository name = `in-person-project-10-<your-github-username>`, visibility **Public**. Click **Create repository**.
+2. **Clone your new repository:**
    ```bash
-   git clone [your-github-classroom-repo-url]
-   cd [your-repo-name]
+   git clone https://github.com/<your-github-username>/in-person-project-10-<your-github-username>.git
+   cd in-person-project-10-<your-github-username>
    ```
 
-2. **Install dependencies and start the development server:**
+#### Second: Install and run (start this now)
+Today there are **two** servers, each in its own terminal: the mock API (port 3001) and Vite (port 5173). Start the install first; on classroom wifi it can take a few minutes, and you can read Part 1 while it runs.
+
+1. **Check Node:** `node -v` must print `v18` or newer. If it prints an older version or "command not found", install the current LTS from https://nodejs.org, open a new terminal and check again.
+2. **Install dependencies** (once per clone; there is nothing extra to install):
    ```bash
    npm install
-   npm run dev
    ```
-
-3. **In a separate terminal, start the mock API server:**
+3. **Terminal 1: start the mock API** and keep it running all session:
    ```bash
    npm run api
    ```
-
-4. **Open your browser** to `http://localhost:5173`
-
-You'll see a weather dashboard that's slow, unreliable, and prone to errors. Let's fix it!
+   It prints "Mock API server running on http://localhost:3001", "Failure rate: 30%" and "Slow response rate: 20%".
+4. **Terminal 2 (a second terminal in the same folder): start the dev server** and keep it running:
+   ```bash
+   npm run dev
+   ```
+5. **Check:** the browser opens http://localhost:5173 (open it yourself if it does not). You should see "Weather Dashboard", four cards (Current Weather, 5-Day Forecast, Weather News, Weather Alerts) and a "Problems to Fix" box. Some cards will be red. That is expected: it is the problem you are here to fix.
 
 ### 📝 Step-by-Step Instructions
 
-#### Part 1: Understanding the Problem (5 minutes)
+#### Part 1: See the problem (5 minutes)
 
-Open the dashboard and try these actions:
-1. **Search for a city** - Notice how it's slow and sometimes fails
-2. **Click "Refresh All"** - Watch how one failing API blocks everything
-3. **Type quickly in search** - See how results arrive out of order
-4. **Open Network tab** - Observe duplicate requests for the same data
+Open DevTools (F12 or Cmd+Option+I) and keep the **Console** and **Network** tabs within reach all session; today's Checkpoints are read there.
 
-**The Issues:**
-- No retry logic when APIs fail
-- No caching (same requests made repeatedly)
-- Race conditions in search
-- Poor error handling
-- No request timeouts
+1. Click **Refresh All** five times, waiting for each to finish. Watch the cards: they load one after another, never together, and on most tries at least one card turns red ("Failed to load ...: Network response was not ok"). A card that has turned red stays red until you reload the page, even when a later request succeeds: the starter never clears its error.
+2. In the Network tab, look at the rows for `weather`, `forecast`, `news` and `alerts`: some are red with status 503, and some take several seconds.
+3. Reload the page and count the rows: each of the four endpoints is requested **twice**. React 18's `StrictMode` runs every effect twice in development, and nothing in the app notices that the same request is already on its way.
+4. Open `src/App.jsx` and read `basicFetch` (top of the file) and `fetchAllData`: one `fetch`, no second try, and four `await`s in a row.
 
-#### Part 2: Implementing Retry Logic with Exponential Backoff (10 minutes)
+**Checkpoint 1:** you have seen a red card, a 503 row, a slow row, and the doubled requests on reload. Nothing to code yet.
 
-**Step 1: Create the retry utility**
+#### Part 2: Retry with exponential backoff, and a timeout (15 minutes)
 
-Open `src/utils/asyncPatterns.js` and implement the retry function:
-
+1. **Write the function.** In `src/utils/asyncPatterns.js`, replace the whole `export async function fetchWithRetry(...) { ... }` stub (the one whose body is two `TODO` comment lines and `return fetch(url, options);`) with this. Keep the comment block above it:
 ```javascript
-// Retry with exponential backoff
 export async function fetchWithRetry(url, options = {}, maxRetries = 3) {
   const { timeout = 5000, ...fetchOptions } = options;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    // A fresh AbortController per attempt: it cancels the fetch if it takes too long
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+
     try {
-      // Add timeout to prevent hanging requests
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), timeout);
-
-      const response = await fetch(url, {
-        ...fetchOptions,
-        signal: controller.signal
-      });
-
-      clearTimeout(timeoutId);
+      const response = await fetch(url, { ...fetchOptions, signal: controller.signal });
 
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        throw new Error(`HTTP ${response.status}`);
       }
 
       return response;
     } catch (error) {
-      const isLastAttempt = attempt === maxRetries;
-
-      if (isLastAttempt) {
-        console.error(`Failed after ${maxRetries + 1} attempts:`, error);
+      if (attempt === maxRetries) {
+        console.error(`Failed after ${maxRetries + 1} attempts: ${url}`);
         throw error;
       }
 
       // Exponential backoff: 1s, 2s, 4s
       const delay = Math.pow(2, attempt) * 1000;
-      console.log(`Retry attempt ${attempt + 1} after ${delay}ms`);
-
+      console.log(`Retry attempt ${attempt + 1} after ${delay}ms: ${url}`);
       await new Promise(resolve => setTimeout(resolve, delay));
+    } finally {
+      clearTimeout(timeoutId);
     }
   }
 }
 ```
 
-**What's happening here:**
-- Each retry waits exponentially longer (1s, 2s, 4s)
-- Includes timeout to prevent hanging requests
-- Logs attempts for debugging
-- Throws error after max retries exhausted
-
-**Step 2: Update weather service to use retry logic**
-
-In `src/services/weatherService.js`, replace the basic fetch with your retry function:
-
-```javascript
-import { fetchWithRetry } from '../utils/asyncPatterns';
-
-export async function getWeatherData(city) {
-  try {
-    const response = await fetchWithRetry(
-      `http://localhost:3001/weather?city=${encodeURIComponent(city)}`,
-      { timeout: 3000 },
-      2 // Max 3 attempts total
-    );
-
-    const data = await response.json();
-    return { success: true, data };
-  } catch (error) {
-    return {
-      success: false,
-      error: error.message,
-      fallback: getWeatherFallback(city)
-    };
-  }
-}
-
-// Fallback data when API fails
-function getWeatherFallback(city) {
-  return {
-    city,
-    temp: '--',
-    condition: 'Data temporarily unavailable',
-    humidity: '--',
-    wind: '--'
-  };
+2. **Use it in the dashboard.** In `src/App.jsx`, add one import under the `StatusBar` import:
+```jsx
+import { fetchWithRetry } from './utils/asyncPatterns';
+```
+   and replace the whole `basicFetch` function (and the `PROBLEM` comment above it) with:
+```jsx
+async function basicFetch(url) {
+  const response = await fetchWithRetry(url, { timeout: 3000 });
+  return response.json();
 }
 ```
 
-#### Part 3: Implementing Request Cache and Deduplication (10 minutes)
+**Checkpoint 2:** click Refresh All five times. The Console prints lines like `Retry attempt 1 after 1000ms: http://localhost:3001/news?city=San%20Francisco`, and the red cards are now rare (a card only fails when four attempts in a row fail; if you do see one, its text is "HTTP 503" or an "aborted" message). The Network tab still shows red 503 rows: the failures still happen, the dashboard just no longer gives up on the first one. The page is slower than before when a retry waits; the cards still load one after another. Part 4 fixes that.
 
-**Step 1: Create the cache manager**
+What's happening here:
+- `fetch` only rejects on a network failure; a 503 is a normal response, so the `!response.ok` check turns it into an error the `catch` can retry
+- `AbortController` plus `setTimeout` is the timeout: after 3 seconds `controller.abort()` makes the `fetch` reject, and that attempt counts as a failure
+- The wait doubles each time (1s, 2s, 4s), so a struggling server gets room to recover; `await new Promise(resolve => setTimeout(resolve, delay))` is how you pause inside an `async` function
+- `finally` runs on every path (success, retry, final failure), so the timer is always cleared
 
-Add to `src/utils/asyncPatterns.js`:
+#### Part 3: A cache, and no duplicate requests (15 minutes)
 
+All of this Part's code goes into `src/utils/asyncPatterns.js`.
+
+1. **Fill in the cache class.** Replace the whole `class RequestCache { ... }` stub with this class **and the one line under it**:
 ```javascript
-// Simple cache with TTL (time-to-live)
 class RequestCache {
-  constructor(ttl = 60000) { // Default 1 minute
+  constructor(ttl = 60000) {
     this.cache = new Map();
     this.ttl = ttl;
   }
 
   set(key, value) {
-    this.cache.set(key, {
-      value,
-      timestamp: Date.now()
-    });
+    this.cache.set(key, { value, timestamp: Date.now() });
   }
 
   get(key) {
@@ -192,197 +161,163 @@ class RequestCache {
   }
 }
 
-// Request deduplication
-const pendingRequests = new Map();
-const cache = new RequestCache(300000); // 5 minute cache
+const cache = new RequestCache(15000); // answers stay fresh for 15 seconds
+```
 
+2. **Write `cachedFetch`.** Replace the whole `export async function cachedFetch(...) { ... }` stub with this. It uses `pendingRequests`, which the starter already declares near the bottom of the file (`const pendingRequests = new Map();`); do not declare it again:
+```javascript
 export async function cachedFetch(url, options = {}) {
-  const cacheKey = `${url}${JSON.stringify(options)}`;
-
-  // Check cache first
-  const cached = cache.get(cacheKey);
+  // 1. A fresh answer in the cache: no request at all
+  const cached = cache.get(url);
   if (cached) {
     console.log('Cache hit:', url);
-    return cached;
+    return { ...cached, cached: true };
   }
 
-  // Check if request already pending
-  if (pendingRequests.has(cacheKey)) {
+  // 2. The same request is already on its way: share its promise
+  if (pendingRequests.has(url)) {
     console.log('Request deduped:', url);
-    return pendingRequests.get(cacheKey);
+    return pendingRequests.get(url);
   }
 
-  // Make the request
+  // 3. Otherwise make the request, remember the answer, forget the pending entry
   const requestPromise = fetchWithRetry(url, options)
-    .then(async response => {
-      const data = await response.json();
-      cache.set(cacheKey, data);
+    .then(response => response.json())
+    .then(data => {
+      cache.set(url, data);
       return data;
     })
     .finally(() => {
-      pendingRequests.delete(cacheKey);
+      pendingRequests.delete(url);
     });
 
-  pendingRequests.set(cacheKey, requestPromise);
+  pendingRequests.set(url, requestPromise);
   return requestPromise;
 }
 ```
 
-**What's happening here:**
-- Cache stores successful responses with timestamps
-- Automatic expiration after TTL
-- Deduplication prevents multiple identical requests
-- Returns cached data when available
-
-#### Part 4: Using Promise Combinators for Parallel Requests (10 minutes)
-
-**Step 1: Implement parallel data fetching with resilience**
-
-Create `src/services/dashboardService.js`:
-
-```javascript
-import { cachedFetch } from '../utils/asyncPatterns';
-
-export async function fetchDashboardData(city) {
-  // Define all data sources
-  const requests = [
-    {
-      name: 'weather',
-      promise: cachedFetch(`http://localhost:3001/weather?city=${city}`)
-        .catch(err => ({ error: err.message, fallback: true }))
-    },
-    {
-      name: 'forecast',
-      promise: cachedFetch(`http://localhost:3001/forecast?city=${city}`)
-        .catch(err => ({ error: err.message, fallback: true }))
-    },
-    {
-      name: 'news',
-      promise: cachedFetch(`http://localhost:3001/news?city=${city}`)
-        .catch(err => ({ error: err.message, fallback: true }))
-    },
-    {
-      name: 'alerts',
-      promise: cachedFetch(`http://localhost:3001/alerts?city=${city}`)
-        .catch(err => ({ error: err.message, fallback: true }))
-    }
-  ];
-
-  // Use allSettled to get all results, even if some fail
-  const results = await Promise.allSettled(
-    requests.map(r => r.promise)
-  );
-
-  // Process results
-  const data = {};
-  results.forEach((result, index) => {
-    const { name } = requests[index];
-
-    if (result.status === 'fulfilled') {
-      data[name] = result.value;
-    } else {
-      data[name] = {
-        error: true,
-        message: 'Service temporarily unavailable'
-      };
-    }
-  });
-
-  return data;
-}
-
-// Race pattern for fastest response
-export async function getFastestWeatherSource(city) {
-  const sources = [
-    cachedFetch(`http://localhost:3001/weather-source1?city=${city}`),
-    cachedFetch(`http://localhost:3001/weather-source2?city=${city}`),
-    cachedFetch(`http://localhost:3001/weather-source3?city=${city}`)
-  ];
-
-  try {
-    // Promise.race returns first to resolve
-    const result = await Promise.race(sources);
-    return result;
-  } catch (error) {
-    // All sources failed
-    console.error('All weather sources failed');
-    throw error;
-  }
-}
-
-// Get any successful response
-export async function getAnyWeatherData(city) {
-  const sources = [
-    cachedFetch(`http://localhost:3001/weather-primary?city=${city}`),
-    cachedFetch(`http://localhost:3001/weather-backup1?city=${city}`),
-    cachedFetch(`http://localhost:3001/weather-backup2?city=${city}`)
-  ];
-
-  try {
-    // Promise.any returns first successful (ES2021)
-    const result = await Promise.any(sources);
-    return result;
-  } catch (error) {
-    // AggregateError when all promises reject
-    console.error('No weather sources available');
-    throw error;
-  }
+3. **Use it in the dashboard.** In `src/App.jsx`, change the import you added in Part 2 to import `cachedFetch` instead:
+```jsx
+import { cachedFetch } from './utils/asyncPatterns';
+```
+   and replace `basicFetch` again:
+```jsx
+async function basicFetch(url) {
+  return cachedFetch(url, { timeout: 3000 });
 }
 ```
 
-**What's happening here:**
-- `Promise.allSettled` gets all results regardless of failures
-- `Promise.race` uses fastest responding service
-- `Promise.any` provides automatic failover
-- Each pattern serves different resilience needs
+**Checkpoint 3:** reload the page. The Console prints `Request deduped: ...` four times, and the Network tab shows each endpoint requested once instead of twice (a retried request adds its own red row). Now click Refresh All right away: the cards come back instantly, each title carries a grey **Cached** badge, the Console prints `Cache hit: ...` four times, and the Network tab shows no new rows. Wait 15 seconds and click Refresh All again: real requests go out and the badges disappear.
 
-#### Part 5: Handling Search with Debouncing and Cancellation (10 minutes)
+What's happening here:
+- The cache is a `Map` from URL to `{ value, timestamp }`; `get` treats an entry older than the TTL as missing
+- Deduplication stores the **promise**, not the answer: a second caller that arrives while the first request is in flight gets the same promise, so both receive the same result from one request
+- Only successful answers are cached; a failed request rejects, `.finally` removes the pending entry, and the next call tries again
+- The trade-off is visible: for 15 seconds Refresh All shows the cached answer. A cache trades freshness for speed; the TTL is where you choose how much
 
-**Step 1: Implement search with race condition prevention**
+#### Part 4: Load all four in parallel with `Promise.allSettled` (15 minutes)
 
-Create `src/hooks/useSearch.js`:
-
+1. **Write the service.** In `src/services/dashboardService.js`, add this import as the first line of the file:
 ```javascript
-import { useState, useCallback, useRef } from 'react';
+import { cachedFetch } from '../utils/asyncPatterns';
+```
+   and replace the whole `export async function fetchDashboardData(city) { ... }` function (the sequential one with four `try` blocks) with:
+```javascript
+export async function fetchDashboardData(city) {
+  const names = ['weather', 'forecast', 'news', 'alerts'];
 
+  // Start all four requests at once; allSettled waits for every one, failed or not
+  const results = await Promise.allSettled(
+    names.map(name =>
+      cachedFetch(
+        `http://localhost:3001/${name}?city=${encodeURIComponent(city)}`,
+        { timeout: 3000 }
+      )
+    )
+  );
+
+  const data = {};
+  const errors = {};
+
+  results.forEach((result, index) => {
+    const name = names[index];
+
+    if (result.status === 'fulfilled') {
+      data[name] = result.value;
+      errors[name] = null;
+    } else {
+      errors[name] = result.reason.message;
+    }
+  });
+
+  return { data, errors };
+}
+```
+
+2. **Use it in the dashboard.** In `src/App.jsx`:
+   - change the import from Parts 2 and 3 (`import { cachedFetch } from './utils/asyncPatterns';`) to:
+```jsx
+import { fetchDashboardData } from './services/dashboardService';
+```
+   - delete the whole `basicFetch` function at the top of the file
+   - inside `function App()`, delete the whole `fetchWeatherData` function (with its `PROBLEM` comment) and the whole `fetchAllData` function (with its `PROBLEM` comment, about 37 lines, down to the line before `useEffect`), and put this in their place:
+```jsx
+  const fetchAllData = async (cityName) => {
+    setLoading({ weather: true, forecast: true, news: true, alerts: true });
+
+    const { data, errors } = await fetchDashboardData(cityName);
+
+    setDashboardData(prev => ({ ...prev, ...data }));
+    setErrors(errors);
+    setLoading({ weather: false, forecast: false, news: false, alerts: false });
+  };
+```
+   The `useEffect`, `handleRefresh` and everything below stay as they are.
+
+**Checkpoint 4:** wait 15 seconds (so the cache is stale) and click Refresh All: all four cards show their spinner at the same moment and fill together. In the Network tab the four requests start at the same time (look at the Waterfall column: the bars start at the same left edge instead of forming a staircase). Then prove that one failure blocks nothing: stop the API (Ctrl+C in Terminal 1), wait 15 seconds, click Refresh All. After about 7 seconds of retries all four cards turn red ("Failed to load ...: Failed to fetch"), the status bar says "4 services unavailable", and the page is still alive. Start the API again (`npm run api`), click Refresh All: the cards come back.
+
+What's happening here:
+- `names.map(...)` calls `cachedFetch` four times without `await`, so all four requests are already running before `allSettled` is called; that is what "parallel" means here
+- `Promise.all` would reject as soon as one request failed and you would lose the other three answers. `Promise.allSettled` never rejects: it resolves to one `{ status: 'fulfilled', value }` or `{ status: 'rejected', reason }` per promise, in the same order as the input
+- The dashboard now waits for the slowest of the four before it shows anything (a retry on one card holds back all four). Tier 1 fixes that
+
+#### Part 5 (stretch): Search that waits and cancels (10 minutes)
+
+Type "san" quickly into the search box with the Network tab open: three requests (`search?q=s`, `search?q=sa`, `search?q=san`), and because each takes a different time, the answer for "s" can arrive last and overwrite the answer for "san". That is a race condition.
+
+1. **Write the hook.** In `src/hooks/useSearch.js`, replace the whole `export function useSearch(searchFn, delay = 500) { ... }` function with this. Keep the `import` line at the top of the file:
+```javascript
 export function useSearch(searchFn, delay = 500) {
   const [results, setResults] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+
   const abortControllerRef = useRef(null);
   const timeoutRef = useRef(null);
 
-  const search = useCallback(async (query) => {
-    // Clear previous timeout
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-    }
-
-    // Cancel previous request
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
+  const search = useCallback((query) => {
+    // A new keystroke: drop the timer and the request of the previous one
+    clearTimeout(timeoutRef.current);
+    abortControllerRef.current?.abort();
 
     if (!query) {
       setResults(null);
+      setLoading(false);
       return;
     }
 
-    // Debounce the search
+    // Debounce: wait until the typing pauses for `delay` ms
     timeoutRef.current = setTimeout(async () => {
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+
       setLoading(true);
       setError(null);
 
-      // Create new abort controller for this request
-      abortControllerRef.current = new AbortController();
-
       try {
-        const data = await searchFn(query, abortControllerRef.current.signal);
-
-        // Only update if not aborted
-        if (!abortControllerRef.current.signal.aborted) {
+        const data = await searchFn(query, controller.signal);
+        if (!controller.signal.aborted) {
           setResults(data);
-          setError(null);
         }
       } catch (err) {
         if (err.name !== 'AbortError') {
@@ -390,71 +325,87 @@ export function useSearch(searchFn, delay = 500) {
           setResults(null);
         }
       } finally {
-        setLoading(false);
+        if (!controller.signal.aborted) {
+          setLoading(false);
+        }
       }
     }, delay);
   }, [searchFn, delay]);
 
-  // Cleanup function
   const cancel = useCallback(() => {
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-    }
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
+    clearTimeout(timeoutRef.current);
+    abortControllerRef.current?.abort();
+    setLoading(false);
   }, []);
 
   return { results, loading, error, search, cancel };
 }
 ```
 
-**What's happening here:**
-- Debounces input to reduce API calls
-- Cancels in-flight requests when new search starts
-- Prevents race conditions with AbortController
-- Provides loading and error states
+2. **Use it in the search box.** In `src/components/SearchBar.jsx`, replace everything from the first line of the file down to the line before `const handleSelectCity = (city) => {` (the `import`, the three `useState` lines and the whole `handleSearch` function) with:
+```jsx
+import React, { useState } from 'react';
+import { useSearch } from '../hooks/useSearch';
 
-#### Part 6: Implementing Polling for Live Updates (5 minutes)
+// Defined outside the component so it is the same function on every render
+async function searchCities(query, signal) {
+  const response = await fetch(
+    `http://localhost:3001/search?q=${encodeURIComponent(query)}`,
+    { signal }
+  );
+  const data = await response.json();
+  return data.results;
+}
 
-Add to `src/hooks/usePolling.js`:
+function SearchBar({ onCityChange }) {
+  const [query, setQuery] = useState('');
+  const { results, loading, search } = useSearch(searchCities, 300);
+  const suggestions = results || [];
 
+  const handleSearch = (value) => {
+    setQuery(value);
+    search(value);
+  };
+
+```
+   Then, inside `handleSelectCity`, replace the line `setSuggestions([]);` with:
+```jsx
+    search('');
+```
+   The JSX below (`return ( ... )`) stays as it is: it already reads `query`, `loading` and `suggestions`.
+
+**Checkpoint 5:** type "san" quickly: the Network tab shows **one** request, `search?q=san`, about a third of a second after the last key, and the list shows five cities. Type "san", pause until the list appears, then type " d" quickly: if a request was still in flight it shows as "(canceled)". Click "San Diego": the list closes and the four cards reload for San Diego.
+
+What's happening here:
+- Debouncing: every keystroke clears the previous timer and starts a new one, so the request only goes out when the typing pauses
+- Cancellation: the `signal` is passed to `fetch`; `abort()` makes that `fetch` reject with an `AbortError`, which the `catch` ignores on purpose
+- Each request keeps its **own** `controller` in a local `const`, so a late answer can check whether it is the one that was cancelled
+- `useRef` holds the timer and the controller because changing them must not re-render the component
+
+#### Part 6 (stretch): Polling for fresh data (5 minutes)
+
+1. **Write the hook.** In `src/hooks/usePolling.js`, replace the whole `export function usePolling(...) { ... }` function with this. Keep the `import` line at the top:
 ```javascript
-import { useEffect, useRef } from 'react';
-
 export function usePolling(callback, interval = 30000, enabled = true) {
-  const savedCallback = useRef();
-  const intervalIdRef = useRef();
+  const savedCallback = useRef(callback);
 
+  // Always call the latest callback (it closes over the current city)
   useEffect(() => {
     savedCallback.current = callback;
   }, [callback]);
 
   useEffect(() => {
-    if (!enabled) {
-      if (intervalIdRef.current) {
-        clearInterval(intervalIdRef.current);
-      }
-      return;
-    }
+    if (!enabled) return;
 
-    // Immediate first call
-    savedCallback.current();
+    savedCallback.current(); // immediate first call
 
-    // Set up polling
-    intervalIdRef.current = setInterval(() => {
+    const intervalId = setInterval(() => {
       savedCallback.current();
     }, interval);
 
-    // Cleanup
-    return () => {
-      if (intervalIdRef.current) {
-        clearInterval(intervalIdRef.current);
-      }
-    };
+    return () => clearInterval(intervalId); // cleanup on unmount
   }, [interval, enabled]);
 
-  // Manual refresh function
   const refresh = () => {
     savedCallback.current();
   };
@@ -463,187 +414,67 @@ export function usePolling(callback, interval = 30000, enabled = true) {
 }
 ```
 
-### 🎨 Customization Ideas
-
-- **Visual Feedback**: Add loading skeletons for each data section
-- **Error Recovery UI**: Show "Retry" buttons for failed sections
-- **Performance Metrics**: Display cache hit rates and response times
-- **Smart Polling**: Increase interval when tab is inactive
-- **Offline Mode**: Store last successful results in localStorage
-
-### 🏆 Challenge Extensions
-
-**Intermediate: Circuit Breaker Pattern**
-Implement a circuit breaker that stops calling failing services:
-```javascript
-class CircuitBreaker {
-  constructor(threshold = 5, timeout = 60000) {
-    this.failureCount = 0;
-    this.threshold = threshold;
-    this.timeout = timeout;
-    this.state = 'CLOSED'; // CLOSED, OPEN, HALF_OPEN
-    this.nextAttempt = Date.now();
-  }
-
-  async call(fn) {
-    if (this.state === 'OPEN') {
-      if (Date.now() < this.nextAttempt) {
-        throw new Error('Circuit breaker is OPEN');
-      }
-      this.state = 'HALF_OPEN';
-    }
-
-    try {
-      const result = await fn();
-      this.onSuccess();
-      return result;
-    } catch (error) {
-      this.onFailure();
-      throw error;
-    }
-  }
-
-  onSuccess() {
-    this.failureCount = 0;
-    this.state = 'CLOSED';
-  }
-
-  onFailure() {
-    this.failureCount++;
-    if (this.failureCount >= this.threshold) {
-      this.state = 'OPEN';
-      this.nextAttempt = Date.now() + this.timeout;
-    }
-  }
-}
+2. **Use it in the dashboard.** In `src/App.jsx`, add the import under the `fetchDashboardData` import:
+```jsx
+import { usePolling } from './hooks/usePolling';
 ```
-
-**Advanced: Priority Queue for Requests**
-Manage request priority during high load:
-```javascript
-class PriorityQueue {
-  constructor(maxConcurrent = 3) {
-    this.queue = [];
-    this.running = 0;
-    this.maxConcurrent = maxConcurrent;
-  }
-
-  async add(fn, priority = 0) {
-    return new Promise((resolve, reject) => {
-      this.queue.push({ fn, priority, resolve, reject });
-      this.queue.sort((a, b) => b.priority - a.priority);
-      this.process();
-    });
-  }
-
-  async process() {
-    if (this.running >= this.maxConcurrent || this.queue.length === 0) {
-      return;
-    }
-
-    this.running++;
-    const { fn, resolve, reject } = this.queue.shift();
-
-    try {
-      const result = await fn();
-      resolve(result);
-    } catch (error) {
-      reject(error);
-    } finally {
-      this.running--;
-      this.process();
-    }
-  }
-}
+   and add one line directly above `const handleRefresh = () => {`:
+```jsx
+  usePolling(() => fetchAllData(city), 30000);
 ```
+   Keep the existing `useEffect(() => { fetchAllData(city); }, [city]);`: it reloads when the city changes; polling reloads when time passes.
 
-**Graduate (253A): Adaptive Retry Strategy**
-Implement smart retry that adapts based on error type:
-```javascript
-function getRetryStrategy(error) {
-  // Rate limit: wait longer
-  if (error.status === 429) {
-    const retryAfter = error.headers?.get('Retry-After');
-    return {
-      maxRetries: 5,
-      delay: retryAfter ? parseInt(retryAfter) * 1000 : 60000
-    };
-  }
+**Checkpoint 6:** leave the page alone with the Network tab open. Every 30 seconds four new requests go out by themselves and "Last Update" in the status bar moves forward. On page load the Console now prints more `Request deduped` lines than before: the effect and the poll both ask for the same data at the same moment, and Part 3 turns that into one request per endpoint.
 
-  // Server errors: aggressive retry
-  if (error.status >= 500) {
-    return {
-      maxRetries: 3,
-      delay: 1000,
-      backoff: 2
-    };
-  }
+What's happening here:
+- `setInterval` repeats; the function returned from `useEffect` is the cleanup, and `clearInterval` there is what prevents a timer that outlives the component
+- The callback lives in a ref so the interval always calls the newest one (with the current `city`) without restarting the timer on every render
 
-  // Network errors: moderate retry
-  if (!error.status) {
-    return {
-      maxRetries: 2,
-      delay: 2000,
-      backoff: 1.5
-    };
-  }
+### 🏆 Challenge Extensions (if you finish early)
 
-  // Client errors: no retry
-  return {
-    maxRetries: 0
-  };
-}
-```
+**Tier 1 (about 15 minutes): each card fills as soon as its own request settles.** Today all four cards wait for the slowest. Give `fetchDashboardData` a second parameter, a callback `onSettled(name, data, errorMessage)`, and call it from a `.then(...)` and a `.catch(...)` attached to each `cachedFetch` promise; in `App.jsx`, pass a callback that updates that one card's `dashboardData`, `errors` and `loading`. Keep `Promise.allSettled` to know when everything is done.
+- **Done when:** on a refresh where one request retries, the other three cards show their data while the fourth still shows its spinner.
+
+**Tier 2 (about 15 minutes): the fastest of three sources with `Promise.any`.** The mock API has three more endpoints, `/weather-source1`, `/weather-source2` and `/weather-source3` (each takes `?city=`), with different, random delays. In `src/utils/asyncPatterns.js`, fill in the `getFastestSource(urls)` stub: fetch all the URLs at once, turn each into its JSON, and return the first one that succeeds with `Promise.any`. Call it once from a `useEffect` in `App.jsx` and log the result's `source`.
+- **Done when:** the Console prints one of `NOAA`, `Weather.com` or `OpenWeather` on load, and the name changes across reloads. One sentence in your commit message on how `Promise.any` differs from `Promise.race` when the fastest promise rejects.
+
+**Tier 3 (253A students, about 20 minutes, a bounded task): do not retry what cannot succeed.** A 503 may work on the next try; a 404 never will. Change `fetchWithRetry` so an HTTP status from 400 to 499 is thrown at once with no retry, while 5xx responses, timeouts and network failures still retry. (Hint: attach the status to the error you throw, `error.status = response.status`, and check it at the top of the `catch`.)
+- **Done when:** `fetchWithRetry('http://localhost:3001/nope')` called from a `useEffect` fails after one attempt with no `Retry attempt` line in the Console, and the dashboard's 503s still retry as before.
 
 ### 🐛 Troubleshooting Guide
 
-**Issue: "Network request failed"**
-- Solution: Ensure mock API is running (`npm run api`)
-- Check if port 3001 is available
+**Every card is red with "Failed to fetch".** The mock API is not running. Start it in its own terminal: `npm run api`. It must stay running next to `npm run dev`.
 
-**Issue: "Results arrive out of order"**
-- Solution: Implement AbortController cancellation
-- Verify debounce delay is appropriate
+**`npm run api` fails with "EADDRINUSE: address already in use :::3001".** An API server is already running in another terminal (or an old one never stopped). Use that one, or close it and start again.
 
-**Issue: "Memory leak warning"**
-- Solution: Clean up timeouts and intervals in useEffect
-- Cancel pending requests on unmount
+**The page is blank and the Console says "Identifier 'RequestCache' has already been declared" (or `cache`, `pendingRequests`, `cachedFetch`, or any import).** A code block was pasted next to the stub it replaces instead of over it. Keep one copy. `pendingRequests` is declared once, near the bottom of `asyncPatterns.js`, by the starter.
 
-**Issue: "Too many API calls"**
-- Solution: Increase cache TTL
-- Add debounce to search input
-- Check for duplicate event handlers
+**"Cannot access 'cache' before initialization".** The line `const cache = new RequestCache(15000);` must sit directly under the closing `}` of `class RequestCache`, not above the class.
+
+**Refresh All does nothing new.** The answers are less than 15 seconds old, so they come from the cache (the Cached badge shows it). Wait 15 seconds, or reload the page: a reload empties the cache, because the cache lives in the page's memory.
+
+**The cards never show a Cached badge.** `cachedFetch` must return `{ ...cached, cached: true }` on a cache hit (Part 3 step 2), and `App.jsx` must call `cachedFetch` (Part 3 step 3) or `fetchDashboardData` (Part 4), not `fetchWithRetry` directly.
+
+**The Console shows red "Failed to load resource: 503" lines.** Expected: that is the mock API failing on purpose. What matters is that a `Retry attempt` line follows and the card fills.
+
+**The search list never appears after Part 5.** `searchCities` must return `data.results`, and the component must read `const suggestions = results || [];`.
+
+**"node_modules" shows up in `git status`.** The repository's `.gitignore` already excludes it; if you deleted that file, restore it before `git add .`.
 
 ### 📖 Resources & References
-
-- [MDN: Promise Methods](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Promise)
+- [MDN: Promise.allSettled](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Promise/allSettled)
+- [MDN: Promise.any](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Promise/any)
 - [MDN: AbortController](https://developer.mozilla.org/en-US/docs/Web/API/AbortController)
-- [Exponential Backoff Explained](https://en.wikipedia.org/wiki/Exponential_backoff)
-- [Circuit Breaker Pattern](https://martinfowler.com/bliki/CircuitBreaker.html)
-- [Web Workers for Heavy Computation](https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API)
+- [MDN: async function](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/async_function)
+- [Exponential backoff](https://en.wikipedia.org/wiki/Exponential_backoff)
 
-### ✅ Project Checklist
+### ✅ What "complete" means (complete/incomplete grade)
 
-Before considering your project complete, ensure:
+A pushed repository with commits made today whose app shows all three of these:
+- (a) Part 2: `fetchWithRetry` is written and the dashboard uses it; the Console prints `Retry attempt` lines and red cards are rare
+- (b) Part 3: `RequestCache` and `cachedFetch` are written; Refresh All within 15 seconds shows the Cached badges with no new requests, and a reload prints `Request deduped`
+- (c) Part 4: `fetchDashboardData` loads the four sections with `Promise.allSettled` and `App.jsx` uses it; with the API stopped the cards turn red and the page stays alive
 
-- [ ] **Retry Logic Works**: Failed requests retry with increasing delays
-- [ ] **Cache Prevents Duplicates**: Same request within 5 minutes uses cache
-- [ ] **Search Handles Race Conditions**: Fast typing doesn't cause wrong results
-- [ ] **Parallel Requests Complete**: Dashboard loads even if some APIs fail
-- [ ] **Error Messages Are Helpful**: Users understand what went wrong
-- [ ] **Loading States Are Accurate**: Each section shows its own loading state
-- [ ] **Polling Updates Data**: Weather refreshes every 30 seconds
-- [ ] **Memory Leaks Prevented**: No console warnings about unmounted components
-- [ ] **Network Tab Shows Optimization**: Fewer requests than before
-- [ ] **Dashboard Remains Responsive**: UI doesn't freeze during operations
+Parts 5 and 6 and the Tiers are optional. If you stop early, push what works: an app with (a) and (b) plus a commit message that says where you stopped is COMPLETE; a broken Part 4 pushed over a working (a) and (b) is not.
 
-### 💡 Key Takeaways
-
-By completing this project, you've learned:
-- How to make unreliable APIs reliable with retry logic
-- Why caching and deduplication matter for performance
-- How Promise combinators solve different coordination problems
-- Why race conditions happen and how to prevent them
-- How production apps handle errors gracefully
-
-These patterns appear in every production JavaScript application. Whether you're building with React, Vue, Angular, or vanilla JS, you'll use these techniques to create robust, performant applications that users can depend on.
+Before you leave: `git add .`, `git commit -m "In-person project 10"`, `git push`, then paste your repository URL into the bCourses assignment.
