@@ -20,13 +20,15 @@ The starter is a weather dashboard that talks to a deliberately bad API: about 3
 
 **What the starter gives you:** a complete Vite + React app: `src/App.jsx` (the dashboard), six components under `src/components/` (four cards, `SearchBar`, `StatusBar`), all the CSS, and a mock API server in `mock-api/server.js`. The code you write today goes into files that already exist as `TODO` stubs: `src/utils/asyncPatterns.js`, `src/services/dashboardService.js`, and (stretch) `src/hooks/useSearch.js` and `src/hooks/usePolling.js`. The app starts and runs before you change anything; it is just slow and often red.
 
-**Fill the TODO in place; never create a file that exists or paste a second copy of a line.** Every code block below replaces a stub in a file that already exists. If a block repeats a line the starter already has (an `import`, a `const`, a `class`), keep one copy. A duplicated `import`, `const` or `class` is a syntax error that blanks the whole page.
+**Fill the TODO in place; never make a new file with the name of one that exists, and never paste a second copy of a line.** Every code block below replaces a stub in a file that already exists. If a block repeats a line the starter already has (an `import`, a `const`, a `class`), keep one copy. A duplicated `import`, `const` or `class` is a syntax error that blanks the whole page.
 
 **Not used today:** `src/services/weatherService.js`, `test-patterns.html`, and the stubs in `asyncPatterns.js` that no Part names (`fetchWithTimeout`, `fetchAllParallel`, `dedupedFetch`). Leave them as they are; they are extra practice for after class.
 
 ### 🚀 Getting Started
 
 **Today's core is Parts 1 to 4 (about 50 minutes after a 10-minute setup). Parts 5 and 6 are the stretch, the Tiers come after. Each Part ends with a Checkpoint that says what you should see.**
+
+**Commit at every Checkpoint** (`git add .` then `git commit -m "Part 2 works"`). If a later Part breaks the app and you run out of time, `git restore .` puts every file back to your last commit.
 
 #### First: Create your own copy of this template
 This repository is a GitHub **template** (GitHub Classroom is not used this term). Make your own copy of it, then clone that copy.
@@ -63,7 +65,7 @@ Today there are **two** servers, each in its own terminal: the mock API (port 30
 
 Open DevTools (F12 or Cmd+Option+I) and keep the **Console** and **Network** tabs within reach all session; today's Checkpoints are read there.
 
-1. Click **Refresh All** five times, waiting for each to finish. Watch the cards: they load one after another, never together, and on most tries at least one card turns red ("Failed to load ...: Network response was not ok"). A card that has turned red stays red until you reload the page, even when a later request succeeds: the starter never clears its error.
+1. Click **Refresh All** five times, waiting for each to finish. Watch the cards: they load one after another, never together, and on most tries at least one card turns red ("Failed to load ...: Network response was not ok"). A Forecast, News or Alerts card that has turned red stays red until you reload the page, even when a later request succeeds: the starter never clears those three errors (Current Weather does clear its own).
 2. In the Network tab, look at the rows for `weather`, `forecast`, `news` and `alerts`: some are red with status 503, and some take several seconds.
 3. Reload the page and count the rows: each of the four endpoints is requested **twice**. React 18's `StrictMode` runs every effect twice in development, and nothing in the app notices that the same request is already on its way.
 4. Open `src/App.jsx` and read `basicFetch` (top of the file) and `fetchAllData`: one `fetch`, no second try, and four `await`s in a row.
@@ -119,7 +121,7 @@ async function basicFetch(url) {
 }
 ```
 
-**Checkpoint 2:** click Refresh All five times. The Console prints lines like `Retry attempt 1 after 1000ms: http://localhost:3001/news?city=San%20Francisco`, and the red cards are now rare (a card only fails when four attempts in a row fail; if you do see one, its text is "HTTP 503" or an "aborted" message). The Network tab still shows red 503 rows: the failures still happen, the dashboard just no longer gives up on the first one. The page is slower than before when a retry waits; the cards still load one after another. Part 4 fixes that.
+**Checkpoint 2:** click Refresh All five times. The Console prints lines like `Retry attempt 1 after 1000ms: http://localhost:3001/news?city=San%20Francisco`, and a red card is now rare: a card only fails when four attempts in a row fail, about one card load in thirty, so over five refreshes you may still meet one (its text is "HTTP 503" or a message containing "aborted"). The Network tab still shows red 503 rows: the failures still happen, the dashboard just no longer gives up on the first one. The page is slower than before: a refresh can take 10 seconds or more, because every retry waits and the cards still load one after another. That is the price of retrying; Part 4 takes most of it back.
 
 What's happening here:
 - `fetch` only rejects on a network failure; a 503 is a normal response, so the `!response.ok` check turns it into an error the `catch` can retry
@@ -131,7 +133,7 @@ What's happening here:
 
 All of this Part's code goes into `src/utils/asyncPatterns.js`.
 
-1. **Fill in the cache class.** Replace the whole `class RequestCache { ... }` stub with this class **and the one line under it**:
+1. **Fill in the cache class.** Replace the whole `class RequestCache { ... }` stub with this class, and add the `const cache = ...` line at the end of the block directly under the class (that line is new; the starter has no `cache` yet):
 ```javascript
 class RequestCache {
   constructor(ttl = 60000) {
@@ -207,7 +209,7 @@ async function basicFetch(url) {
 }
 ```
 
-**Checkpoint 3:** reload the page. The Console prints `Request deduped: ...` four times, and the Network tab shows each endpoint requested once instead of twice (a retried request adds its own red row). Now click Refresh All right away: the cards come back instantly, each title carries a grey **Cached** badge, the Console prints `Cache hit: ...` four times, and the Network tab shows no new rows. Wait 15 seconds and click Refresh All again: real requests go out and the badges disappear.
+**Checkpoint 3:** reload the page. The Console prints `Request deduped: ...` four times (once per endpoint: `StrictMode` asks for everything twice, and the second ask finds the first still in flight), and the Network tab shows each endpoint requested once instead of twice (a retried request adds its own red row). Now click Refresh All right away: the cards come back instantly, each title carries a grey **Cached** badge, the Console prints `Cache hit: ...` four times, and the Network tab shows no new rows. Wait 15 seconds and click Refresh All again: real requests go out and the badges disappear.
 
 What's happening here:
 - The cache is a `Map` from URL to `{ value, timestamp }`; `get` treats an entry older than the TTL as missing
@@ -260,7 +262,7 @@ export async function fetchDashboardData(city) {
 import { fetchDashboardData } from './services/dashboardService';
 ```
    - delete the whole `basicFetch` function at the top of the file
-   - inside `function App()`, delete the whole `fetchWeatherData` function (with its `PROBLEM` comment) and the whole `fetchAllData` function (with its `PROBLEM` comment, about 37 lines, down to the line before `useEffect`), and put this in their place:
+   - inside `function App()`, delete two functions that sit one after the other: `fetchWeatherData` and `fetchAllData`. The block to delete starts at the comment line `// PROBLEM: No error handling, no retry, no caching` and ends at the `};` directly above `useEffect(() => {` (about 54 lines). Put this in its place:
 ```jsx
   const fetchAllData = async (cityName) => {
     setLoading({ weather: true, forecast: true, news: true, alerts: true });
@@ -274,12 +276,13 @@ import { fetchDashboardData } from './services/dashboardService';
 ```
    The `useEffect`, `handleRefresh` and everything below stay as they are.
 
-**Checkpoint 4:** wait 15 seconds (so the cache is stale) and click Refresh All: all four cards show their spinner at the same moment and fill together. In the Network tab the four requests start at the same time (look at the Waterfall column: the bars start at the same left edge instead of forming a staircase). Then prove that one failure blocks nothing: stop the API (Ctrl+C in Terminal 1), wait 15 seconds, click Refresh All. After about 7 seconds of retries all four cards turn red ("Failed to load ...: Failed to fetch"), the status bar says "4 services unavailable", and the page is still alive. Start the API again (`npm run api`), click Refresh All: the cards come back.
+**Checkpoint 4:** wait 15 seconds (so the cache is stale) and click Refresh All: all four cards show their spinner at the same moment and fill together. In the Network tab the four requests start at the same time (look at the Waterfall column: the bars start at the same left edge instead of forming a staircase). Then prove that one failure blocks nothing: stop the API (Ctrl+C in Terminal 1), wait 15 seconds, click Refresh All. After about 7 seconds of retries all four cards turn red ("Failed to load ...: Failed to fetch" in Chrome; Firefox says "NetworkError when attempting to fetch resource" and Safari "Load failed"), the status bar says "4 services unavailable", and the page is still alive. Start the API again (`npm run api`), click Refresh All: the cards come back.
 
 What's happening here:
 - `names.map(...)` calls `cachedFetch` four times without `await`, so all four requests are already running before `allSettled` is called; that is what "parallel" means here
 - `Promise.all` would reject as soon as one request failed and you would lose the other three answers. `Promise.allSettled` never rejects: it resolves to one `{ status: 'fulfilled', value }` or `{ status: 'rejected', reason }` per promise, in the same order as the input
 - The dashboard now waits for the slowest of the four before it shows anything (a retry on one card holds back all four). Tier 1 fixes that
+- One gap is left open on purpose: if you pick a new city while a slow load for the previous city is still running, whichever load finishes last wins, and it can be the old city. For today, pick a city after a refresh has finished. Part 5 fixes the same race for the search box; think about what `fetchAllData` would need
 
 #### Part 5 (stretch): Search that waits and cancels (10 minutes)
 
@@ -374,13 +377,13 @@ function SearchBar({ onCityChange }) {
 ```
    The JSX below (`return ( ... )`) stays as it is: it already reads `query`, `loading` and `suggestions`.
 
-**Checkpoint 5:** type "san" quickly: the Network tab shows **one** request, `search?q=san`, about a third of a second after the last key, and the list shows five cities. Type "san", pause until the list appears, then type " d" quickly: if a request was still in flight it shows as "(canceled)". Click "San Diego": the list closes and the four cards reload for San Diego.
+**Checkpoint 5:** type "san" quickly: the Network tab shows **one** request, `search?q=san`, about a third of a second after the last key, and the list shows five cities. To see a cancellation, type "san", wait about half a second (the request goes out) and type " d" before the list appears: the `search?q=san` row turns to "(canceled)". It takes a try or two to hit the moment. Click "San Diego": the list closes and the four cards reload for San Diego.
 
 What's happening here:
 - Debouncing: every keystroke clears the previous timer and starts a new one, so the request only goes out when the typing pauses
 - Cancellation: the `signal` is passed to `fetch`; `abort()` makes that `fetch` reject with an `AbortError`, which the `catch` ignores on purpose
 - Each request keeps its **own** `controller` in a local `const`, so a late answer can check whether it is the one that was cancelled
-- `useRef` holds the timer and the controller because changing them must not re-render the component
+- `useRef` holds the timer and the controller because changing them must not re-render the component; `useCallback` keeps `search` the same function between renders, so it can be passed around without restarting anything
 
 #### Part 6 (stretch): Polling for fresh data (5 minutes)
 
@@ -433,13 +436,13 @@ What's happening here:
 ### 🏆 Challenge Extensions (if you finish early)
 
 **Tier 1 (about 15 minutes): each card fills as soon as its own request settles.** Today all four cards wait for the slowest. Give `fetchDashboardData` a second parameter, a callback `onSettled(name, data, errorMessage)`, and call it from a `.then(...)` and a `.catch(...)` attached to each `cachedFetch` promise; in `App.jsx`, pass a callback that updates that one card's `dashboardData`, `errors` and `loading`. Keep `Promise.allSettled` to know when everything is done.
-- **Done when:** on a refresh where one request retries, the other three cards show their data while the fourth still shows its spinner.
+- **Done when:** on a refresh made after the 15-second cache has gone stale, where one request retries, the other three cards show their data while the fourth still shows its spinner.
 
-**Tier 2 (about 15 minutes): the fastest of three sources with `Promise.any`.** The mock API has three more endpoints, `/weather-source1`, `/weather-source2` and `/weather-source3` (each takes `?city=`), with different, random delays. In `src/utils/asyncPatterns.js`, fill in the `getFastestSource(urls)` stub: fetch all the URLs at once, turn each into its JSON, and return the first one that succeeds with `Promise.any`. Call it once from a `useEffect` in `App.jsx` and log the result's `source`.
-- **Done when:** the Console prints one of `NOAA`, `Weather.com` or `OpenWeather` on load, and the name changes across reloads. One sentence in your commit message on how `Promise.any` differs from `Promise.race` when the fastest promise rejects.
+**Tier 2 (about 15 minutes): the fastest of three sources with `Promise.any`.** The mock API has three more endpoints, `/weather-source1`, `/weather-source2` and `/weather-source3` (each takes `?city=`), with different, random delays. In `src/utils/asyncPatterns.js`, fill in the `getFastestSource(urls)` stub (ignore the stub's comment that says `Promise.race`): fetch all the URLs at once, turn each into its JSON (each source answers with `{ source, temp, city }`), and return the first one that succeeds with `Promise.any`. `fetch` resolves on a 404 or a 503 too, so reject when `response.ok` is false, or "first to succeed" can be an error page. Call it once from a `useEffect` in `App.jsx` and log the result's `source`.
+- **Done when:** the Console prints one of `NOAA`, `Weather.com` or `OpenWeather` on load (twice, because `StrictMode` runs the effect twice), and over several reloads you see more than one name (NOAA wins most often). One sentence in your commit message on how `Promise.any` differs from `Promise.race` when the fastest promise rejects.
 
-**Tier 3 (253A students, about 20 minutes, a bounded task): do not retry what cannot succeed.** A 503 may work on the next try; a 404 never will. Change `fetchWithRetry` so an HTTP status from 400 to 499 is thrown at once with no retry, while 5xx responses, timeouts and network failures still retry. (Hint: attach the status to the error you throw, `error.status = response.status`, and check it at the top of the `catch`.)
-- **Done when:** `fetchWithRetry('http://localhost:3001/nope')` called from a `useEffect` fails after one attempt with no `Retry attempt` line in the Console, and the dashboard's 503s still retry as before.
+**Tier 3 (written for 253A students, open to anyone; about 20 minutes, a bounded task): do not retry what cannot succeed.** A 503 may work on the next try; a 404 never will. Change `fetchWithRetry` so an HTTP status from 400 to 499 is thrown at once with no retry, while 5xx responses, timeouts and network failures still retry. (Hint: attach the status to the error you throw, `error.status = response.status`, and check it at the top of the `catch`.)
+- **Done when:** `fetchWithRetry('http://localhost:3001/nope')` called from a `useEffect` (with a `.catch` that logs the error) fails after one attempt with no `Retry attempt` line in the Console, and the dashboard's 503s still retry as before.
 
 ### 🐛 Troubleshooting Guide
 
@@ -470,11 +473,11 @@ What's happening here:
 
 ### ✅ What "complete" means (complete/incomplete grade)
 
-A pushed repository with commits made today whose app shows all three of these:
-- (a) Part 2: `fetchWithRetry` is written and the dashboard uses it; the Console prints `Retry attempt` lines and red cards are rare
+A pushed repository with commits made today whose app shows (a) and (b), and (c) too if you reached Part 4:
+- (a) Part 2: `fetchWithRetry` is written and the dashboard uses it; the Console prints `Retry attempt` lines
 - (b) Part 3: `RequestCache` and `cachedFetch` are written; Refresh All within 15 seconds shows the Cached badges with no new requests, and a reload prints `Request deduped`
 - (c) Part 4: `fetchDashboardData` loads the four sections with `Promise.allSettled` and `App.jsx` uses it; with the API stopped the cards turn red and the page stays alive
 
-Parts 5 and 6 and the Tiers are optional. If you stop early, push what works: an app with (a) and (b) plus a commit message that says where you stopped is COMPLETE; a broken Part 4 pushed over a working (a) and (b) is not.
+Parts 5 and 6 and the Tiers are optional. If you stop before Part 4, push what works: an app with (a) and (b) plus a commit message that says where you stopped is COMPLETE. A broken Part 4 pushed over a working (a) and (b) is not: if Part 4 is half done when time runs out, run `git restore .` to return to your last Checkpoint commit, then push.
 
 Before you leave: `git add .`, `git commit -m "In-person project 10"`, `git push`, then paste your repository URL into the bCourses assignment.
